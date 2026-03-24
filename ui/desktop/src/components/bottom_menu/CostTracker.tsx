@@ -7,10 +7,14 @@ import type { ModelInfoData } from '../../api';
 interface CostTrackerProps {
   inputTokens?: number;
   outputTokens?: number;
+  cacheReadInputTokens?: number;
+  cacheWriteInputTokens?: number;
   sessionCosts?: {
     [key: string]: {
       inputTokens: number;
       outputTokens: number;
+      cacheReadInputTokens: number;
+      cacheWriteInputTokens: number;
       totalCost: number;
     };
   };
@@ -18,9 +22,77 @@ interface CostTrackerProps {
   provider: string | null;
 }
 
+const hasPricingInfo = (costInfo: ModelInfoData | null) =>
+  !!costInfo &&
+  [
+    costInfo.input_token_cost,
+    costInfo.output_token_cost,
+    costInfo.cache_read_token_cost,
+    costInfo.cache_write_token_cost,
+  ].some((value) => value !== undefined && value !== null);
+
+const getBillableInputTokens = (
+  inputTokens: number,
+  cacheReadInputTokens: number,
+  cacheWriteInputTokens: number
+) => Math.max(inputTokens - cacheReadInputTokens - cacheWriteInputTokens, 0);
+
+const calculateTrackedCost = (
+  inputTokens: number,
+  outputTokens: number,
+  cacheReadInputTokens: number,
+  cacheWriteInputTokens: number,
+  costInfo: ModelInfoData
+) => {
+  const billableInputTokens = getBillableInputTokens(
+    inputTokens,
+    cacheReadInputTokens,
+    cacheWriteInputTokens
+  );
+  const inputCost = (billableInputTokens * (costInfo.input_token_cost || 0)) / 1_000_000;
+  const outputCost = (outputTokens * (costInfo.output_token_cost || 0)) / 1_000_000;
+  const cacheReadCost = (cacheReadInputTokens * (costInfo.cache_read_token_cost || 0)) / 1_000_000;
+  const cacheWriteCost =
+    (cacheWriteInputTokens * (costInfo.cache_write_token_cost || 0)) / 1_000_000;
+
+  return {
+    billableInputTokens,
+    inputCost,
+    outputCost,
+    cacheReadCost,
+    cacheWriteCost,
+    totalCost: inputCost + outputCost + cacheReadCost + cacheWriteCost,
+  };
+};
+
+const formatTokenBreakdown = (
+  inputTokens: number,
+  outputTokens: number,
+  cacheReadInputTokens: number,
+  cacheWriteInputTokens: number
+) => {
+  const parts = [
+    `${getBillableInputTokens(inputTokens, cacheReadInputTokens, cacheWriteInputTokens).toLocaleString()} input`,
+  ];
+
+  if (cacheReadInputTokens > 0) {
+    parts.push(`${cacheReadInputTokens.toLocaleString()} cache read`);
+  }
+
+  if (cacheWriteInputTokens > 0) {
+    parts.push(`${cacheWriteInputTokens.toLocaleString()} cache write`);
+  }
+
+  parts.push(`${outputTokens.toLocaleString()} output`);
+
+  return parts.join(', ');
+};
+
 export function CostTracker({
   inputTokens = 0,
   outputTokens = 0,
+  cacheReadInputTokens = 0,
+  cacheWriteInputTokens = 0,
   sessionCosts,
   model: currentModel,
   provider: currentProvider,
@@ -91,31 +163,31 @@ export function CostTracker({
       });
 
       // Add current model cost if we have pricing info
-      if (
-        costInfo &&
-        (costInfo.input_token_cost !== undefined || costInfo.output_token_cost !== undefined)
-      ) {
-        const currentInputCost = (inputTokens * (costInfo.input_token_cost || 0)) / 1_000_000;
-        const currentOutputCost = (outputTokens * (costInfo.output_token_cost || 0)) / 1_000_000;
-        totalCost += currentInputCost + currentOutputCost;
+      if (costInfo && hasPricingInfo(costInfo)) {
+        totalCost += calculateTrackedCost(
+          inputTokens,
+          outputTokens,
+          cacheReadInputTokens,
+          cacheWriteInputTokens,
+          costInfo
+        ).totalCost;
       }
 
       return totalCost;
     }
 
     // Fallback to simple calculation for current model only
-    if (
-      !costInfo ||
-      (costInfo.input_token_cost === undefined && costInfo.output_token_cost === undefined)
-    ) {
+    if (!costInfo || !hasPricingInfo(costInfo)) {
       return 0;
     }
 
-    const inputCost = (inputTokens * (costInfo.input_token_cost || 0)) / 1_000_000;
-    const outputCost = (outputTokens * (costInfo.output_token_cost || 0)) / 1_000_000;
-    const total = inputCost + outputCost;
-
-    return total;
+    return calculateTrackedCost(
+      inputTokens,
+      outputTokens,
+      cacheReadInputTokens,
+      cacheWriteInputTokens,
+      costInfo
+    ).totalCost;
   };
 
   const formatCost = (cost: number): string => {
@@ -141,17 +213,19 @@ export function CostTracker({
   }
 
   // If no cost info found, try to return a default
-  if (
-    !costInfo ||
-    (costInfo.input_token_cost === undefined && costInfo.output_token_cost === undefined)
-  ) {
+  if (!costInfo || !hasPricingInfo(costInfo)) {
     const freeProviders = ['ollama', 'local', 'localhost'];
     if (freeProviders.includes(currentProvider.toLowerCase())) {
       return (
         <>
           <div className="flex items-center justify-center h-full text-text-primary/70 transition-colors cursor-default translate-y-[1px]">
             <span className="text-xs font-mono">
-              {inputTokens.toLocaleString()}↑ {outputTokens.toLocaleString()}↓
+              {formatTokenBreakdown(
+                inputTokens,
+                outputTokens,
+                cacheReadInputTokens,
+                cacheWriteInputTokens
+              )}
             </span>
           </div>
           <div className="w-px h-4 bg-border-primary mx-2" />
@@ -164,7 +238,12 @@ export function CostTracker({
       if (pricingFailed) {
         return `Pricing data unavailable for ${currentModel}`;
       }
-      return `Cost data not available for ${currentModel} (${inputTokens.toLocaleString()} input, ${outputTokens.toLocaleString()} output tokens)`;
+      return `Cost data not available for ${currentModel} (${formatTokenBreakdown(
+        inputTokens,
+        outputTokens,
+        cacheReadInputTokens,
+        cacheWriteInputTokens
+      )} tokens)`;
     };
 
     return (
@@ -184,6 +263,13 @@ export function CostTracker({
   }
 
   const totalCost = calculateCost();
+  const currentCostBreakdown = calculateTrackedCost(
+    inputTokens,
+    outputTokens,
+    cacheReadInputTokens,
+    cacheWriteInputTokens,
+    costInfo
+  );
 
   // Build tooltip content
   const getTooltipContent = (): string => {
@@ -199,17 +285,14 @@ export function CostTracker({
 
       Object.entries(sessionCosts).forEach(([modelKey, cost]) => {
         const costStr = `${costInfo?.currency || '$'}${cost.totalCost.toFixed(6)}`;
-        tooltip += `${modelKey}: ${costStr} (${cost.inputTokens.toLocaleString()} in, ${cost.outputTokens.toLocaleString()} out)\n`;
+        tooltip += `${modelKey}: ${costStr} (${formatTokenBreakdown(cost.inputTokens, cost.outputTokens, cost.cacheReadInputTokens, cost.cacheWriteInputTokens)})\n`;
       });
 
       // Add current model if it has costs
       if (costInfo && (inputTokens > 0 || outputTokens > 0)) {
-        const currentCost =
-          (inputTokens * (costInfo.input_token_cost || 0) +
-            outputTokens * (costInfo.output_token_cost || 0)) /
-          1_000_000;
+        const currentCost = currentCostBreakdown.totalCost;
         if (currentCost > 0) {
-          tooltip += `${currentProvider}/${currentModel} (current): ${costInfo.currency || '$'}${currentCost.toFixed(6)} (${inputTokens.toLocaleString()} in, ${outputTokens.toLocaleString()} out)\n`;
+          tooltip += `${currentProvider}/${currentModel} (current): ${costInfo.currency || '$'}${currentCost.toFixed(6)} (${formatTokenBreakdown(inputTokens, outputTokens, cacheReadInputTokens, cacheWriteInputTokens)})\n`;
         }
       }
 
@@ -218,7 +301,29 @@ export function CostTracker({
     }
 
     // Default tooltip for single model
-    return `Input: ${inputTokens.toLocaleString()} tokens (${costInfo?.currency || '$'}${((inputTokens * (costInfo?.input_token_cost || 0)) / 1_000_000).toFixed(6)}) | Output: ${outputTokens.toLocaleString()} tokens (${costInfo?.currency || '$'}${((outputTokens * (costInfo?.output_token_cost || 0)) / 1_000_000).toFixed(6)})`;
+    const lines = [
+      `Input: ${currentCostBreakdown.billableInputTokens.toLocaleString()} tokens (${costInfo?.currency || '$'}${currentCostBreakdown.inputCost.toFixed(6)})`,
+    ];
+
+    if (cacheReadInputTokens > 0) {
+      lines.push(
+        `Cache read: ${cacheReadInputTokens.toLocaleString()} tokens (${costInfo?.currency || '$'}${currentCostBreakdown.cacheReadCost.toFixed(6)})`
+      );
+    }
+
+    if (cacheWriteInputTokens > 0) {
+      lines.push(
+        `Cache write: ${cacheWriteInputTokens.toLocaleString()} tokens (${costInfo?.currency || '$'}${currentCostBreakdown.cacheWriteCost.toFixed(6)})`
+      );
+    }
+
+    lines.push(
+      `Output: ${outputTokens.toLocaleString()} tokens (${costInfo?.currency || '$'}${currentCostBreakdown.outputCost.toFixed(6)})`
+    );
+
+    lines.push(`Total: ${costInfo?.currency || '$'}${currentCostBreakdown.totalCost.toFixed(6)}`);
+
+    return lines.join('\n');
   };
 
   return (

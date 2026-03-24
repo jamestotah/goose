@@ -93,9 +93,13 @@ const initialTokenState: TokenState = {
   inputTokens: 0,
   outputTokens: 0,
   totalTokens: 0,
+  cacheReadInputTokens: 0,
+  cacheWriteInputTokens: 0,
   accumulatedInputTokens: 0,
   accumulatedOutputTokens: 0,
   accumulatedTotalTokens: 0,
+  accumulatedCacheReadInputTokens: 0,
+  accumulatedCacheWriteInputTokens: 0,
 };
 
 const initialState: StreamState = {
@@ -227,7 +231,7 @@ function createEventProcessor(
   dispatch: React.Dispatch<StreamAction>,
   onFinish: (error?: string) => void,
   sessionId: string,
-  onReloadNeeded?: () => void,
+  onReloadNeeded?: () => void
 ) {
   let currentMessages = initialMessages;
   const reduceMotion = prefersReducedMotion();
@@ -412,33 +416,50 @@ export function useChatStream({
         window.dispatchEvent(new CustomEvent(AppEvents.MESSAGE_STREAM_FINISHED));
       }
 
-      // Refresh session name after each reply for the first 3 user messages
+      // Refresh session metadata after each successful reply so token accounting,
+      // resolved model details, and generated names stay in sync with the server.
       if (!error && sessionId) {
         const currentState = stateRef.current;
-        const userMessageCount = currentState.messages.filter((m) => m.role === 'user').length;
+        try {
+          const response = await getSession({
+            path: { session_id: sessionId },
+            throwOnError: true,
+          });
+          const refreshedSession = response.data;
 
-        if (userMessageCount <= 3) {
-          try {
-            const response = await getSession({
-              path: { session_id: sessionId },
-              throwOnError: true,
+          if (refreshedSession) {
+            dispatch({
+              type: 'SET_SESSION',
+              payload: refreshedSession,
             });
-            if (response.data?.name) {
-              dispatch({
-                type: 'SET_SESSION',
-                payload: currentState.session
-                  ? { ...currentState.session, name: response.data.name }
-                  : undefined,
-              });
+            dispatch({
+              type: 'SET_TOKEN_STATE',
+              payload: {
+                inputTokens: refreshedSession.input_tokens ?? 0,
+                outputTokens: refreshedSession.output_tokens ?? 0,
+                totalTokens: refreshedSession.total_tokens ?? 0,
+                cacheReadInputTokens: refreshedSession.cache_read_input_tokens ?? 0,
+                cacheWriteInputTokens: refreshedSession.cache_write_input_tokens ?? 0,
+                accumulatedInputTokens: refreshedSession.accumulated_input_tokens ?? 0,
+                accumulatedOutputTokens: refreshedSession.accumulated_output_tokens ?? 0,
+                accumulatedTotalTokens: refreshedSession.accumulated_total_tokens ?? 0,
+                accumulatedCacheReadInputTokens:
+                  refreshedSession.accumulated_cache_read_input_tokens ?? 0,
+                accumulatedCacheWriteInputTokens:
+                  refreshedSession.accumulated_cache_write_input_tokens ?? 0,
+              },
+            });
+
+            if (refreshedSession.name && refreshedSession.name !== currentState.session?.name) {
               window.dispatchEvent(
                 new CustomEvent(AppEvents.SESSION_RENAMED, {
-                  detail: { sessionId, newName: response.data.name },
+                  detail: { sessionId, newName: refreshedSession.name },
                 })
               );
             }
-          } catch (refreshError) {
-            console.warn('Failed to refresh session name:', refreshError);
           }
+        } catch (refreshError) {
+          console.warn('Failed to refresh session metadata:', refreshError);
         }
       }
 
@@ -453,14 +474,16 @@ export function useChatStream({
     getSession({
       path: { session_id: sessionId },
       throwOnError: true,
-    }).then((response) => {
-      const session = response.data as Session;
-      if (session?.conversation) {
-        dispatch({ type: 'SET_MESSAGES', payload: session.conversation });
-      }
-    }).catch((e) => {
-      console.warn('Failed to reload conversation after buffer overflow:', e);
-    });
+    })
+      .then((response) => {
+        const session = response.data as Session;
+        if (session?.conversation) {
+          dispatch({ type: 'SET_MESSAGES', payload: session.conversation });
+        }
+      })
+      .catch((e) => {
+        console.warn('Failed to reload conversation after buffer overflow:', e);
+      });
   }, [sessionId]);
 
   // Perform the actual reattach: wire up an event processor and listener
@@ -479,7 +502,7 @@ export function useChatStream({
         dispatch,
         onFinish,
         sessionId,
-        reloadConversation,
+        reloadConversation
       );
 
       // Replay any events that were buffered during cold-mount wait
@@ -523,7 +546,7 @@ export function useChatStream({
       });
       activeUnsubscribeRef.current = unsubscribe;
     },
-    [sessionId, addListener, onFinish, reloadConversation],
+    [sessionId, addListener, onFinish, reloadConversation]
   );
   doReattachRef.current = doReattach;
 
@@ -584,7 +607,7 @@ export function useChatStream({
       currentMessages: Message[],
       overrideConversation?: Message[],
       recipeName?: string,
-      recipeVersion?: string,
+      recipeVersion?: string
     ) => {
       const requestId = uuidv7();
       const abortController = new AbortController();
@@ -598,7 +621,7 @@ export function useChatStream({
         dispatch,
         onFinish,
         targetSessionId,
-        reloadConversation,
+        reloadConversation
       );
 
       const unsubscribe = addListener(requestId, (event) => {
@@ -664,9 +687,15 @@ export function useChatStream({
             inputTokens: cached.session?.input_tokens ?? 0,
             outputTokens: cached.session?.output_tokens ?? 0,
             totalTokens: cached.session?.total_tokens ?? 0,
+            cacheReadInputTokens: cached.session?.cache_read_input_tokens ?? 0,
+            cacheWriteInputTokens: cached.session?.cache_write_input_tokens ?? 0,
             accumulatedInputTokens: cached.session?.accumulated_input_tokens ?? 0,
             accumulatedOutputTokens: cached.session?.accumulated_output_tokens ?? 0,
             accumulatedTotalTokens: cached.session?.accumulated_total_tokens ?? 0,
+            accumulatedCacheReadInputTokens:
+              cached.session?.accumulated_cache_read_input_tokens ?? 0,
+            accumulatedCacheWriteInputTokens:
+              cached.session?.accumulated_cache_write_input_tokens ?? 0,
           },
         },
       });
@@ -716,9 +745,15 @@ export function useChatStream({
                 inputTokens: loadedSession?.input_tokens ?? 0,
                 outputTokens: loadedSession?.output_tokens ?? 0,
                 totalTokens: loadedSession?.total_tokens ?? 0,
+                cacheReadInputTokens: loadedSession?.cache_read_input_tokens ?? 0,
+                cacheWriteInputTokens: loadedSession?.cache_write_input_tokens ?? 0,
                 accumulatedInputTokens: loadedSession?.accumulated_input_tokens ?? 0,
                 accumulatedOutputTokens: loadedSession?.accumulated_output_tokens ?? 0,
                 accumulatedTotalTokens: loadedSession?.accumulated_total_tokens ?? 0,
+                accumulatedCacheReadInputTokens:
+                  loadedSession?.accumulated_cache_read_input_tokens ?? 0,
+                accumulatedCacheWriteInputTokens:
+                  loadedSession?.accumulated_cache_write_input_tokens ?? 0,
               },
             },
           });
@@ -735,9 +770,15 @@ export function useChatStream({
               inputTokens: loadedSession?.input_tokens ?? 0,
               outputTokens: loadedSession?.output_tokens ?? 0,
               totalTokens: loadedSession?.total_tokens ?? 0,
+              cacheReadInputTokens: loadedSession?.cache_read_input_tokens ?? 0,
+              cacheWriteInputTokens: loadedSession?.cache_write_input_tokens ?? 0,
               accumulatedInputTokens: loadedSession?.accumulated_input_tokens ?? 0,
               accumulatedOutputTokens: loadedSession?.accumulated_output_tokens ?? 0,
               accumulatedTotalTokens: loadedSession?.accumulated_total_tokens ?? 0,
+              accumulatedCacheReadInputTokens:
+                loadedSession?.accumulated_cache_read_input_tokens ?? 0,
+              accumulatedCacheWriteInputTokens:
+                loadedSession?.accumulated_cache_write_input_tokens ?? 0,
             },
           });
         } else {
@@ -750,9 +791,15 @@ export function useChatStream({
                 inputTokens: loadedSession?.input_tokens ?? 0,
                 outputTokens: loadedSession?.output_tokens ?? 0,
                 totalTokens: loadedSession?.total_tokens ?? 0,
+                cacheReadInputTokens: loadedSession?.cache_read_input_tokens ?? 0,
+                cacheWriteInputTokens: loadedSession?.cache_write_input_tokens ?? 0,
                 accumulatedInputTokens: loadedSession?.accumulated_input_tokens ?? 0,
                 accumulatedOutputTokens: loadedSession?.accumulated_output_tokens ?? 0,
                 accumulatedTotalTokens: loadedSession?.accumulated_total_tokens ?? 0,
+                accumulatedCacheReadInputTokens:
+                  loadedSession?.accumulated_cache_read_input_tokens ?? 0,
+                accumulatedCacheWriteInputTokens:
+                  loadedSession?.accumulated_cache_write_input_tokens ?? 0,
               },
             },
           });

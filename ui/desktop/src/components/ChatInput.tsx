@@ -73,11 +73,15 @@ interface ChatInputProps {
   totalTokens?: number;
   accumulatedInputTokens?: number;
   accumulatedOutputTokens?: number;
+  accumulatedCacheReadInputTokens?: number;
+  accumulatedCacheWriteInputTokens?: number;
   messages?: Message[];
   sessionCosts?: {
     [key: string]: {
       inputTokens: number;
       outputTokens: number;
+      cacheReadInputTokens: number;
+      cacheWriteInputTokens: number;
       totalCost: number;
     };
   };
@@ -92,6 +96,7 @@ interface ChatInputProps {
   inputRef?: React.RefObject<HTMLTextAreaElement | null>;
   sessionModel?: string | null;
   sessionProvider?: string | null;
+  pricingModel?: string | null;
   sessionLoaded?: boolean;
 }
 
@@ -109,6 +114,8 @@ export default function ChatInput({
   totalTokens,
   accumulatedInputTokens,
   accumulatedOutputTokens,
+  accumulatedCacheReadInputTokens,
+  accumulatedCacheWriteInputTokens,
   messages = [],
   disableAnimation = false,
   sessionCosts,
@@ -122,6 +129,7 @@ export default function ChatInput({
   inputRef,
   sessionModel,
   sessionProvider,
+  pricingModel,
   sessionLoaded,
 }: ChatInputProps) {
   const [_value, setValue] = useState(initialValue);
@@ -404,11 +412,11 @@ export default function ChatInput({
 
       // Use effective model/provider (includes overrides from in-session model changes),
       // fall back to config defaults
-      let model = effectiveModel;
+      let model = pricingModel ?? effectiveModel;
       let provider = effectiveProvider;
       if (!model || !provider) {
         const configModelAndProvider = await getCurrentModelAndProvider();
-        model = configModelAndProvider.model;
+        model = pricingModel ?? configModelAndProvider.model;
         provider = configModelAndProvider.provider;
       }
       if (!model || !provider) {
@@ -417,32 +425,48 @@ export default function ChatInput({
         return;
       }
 
+      const modelCandidates = Array.from(
+        new Set(
+          [pricingModel, effectiveModel, model].filter(
+            (candidate): candidate is string => !!candidate
+          )
+        )
+      );
+
       // Priority 1: Check predefined models from environment
       const predefinedModels = getPredefinedModelsFromEnv();
-      const predefinedModel = predefinedModels.find((m) => m.name === model);
-      if (predefinedModel?.context_limit) {
-        setTokenLimit(predefinedModel.context_limit);
-        setIsTokenLimitLoaded(true);
-        return;
+      for (const candidateModel of modelCandidates) {
+        const predefinedModel = predefinedModels.find((m) => m.name === candidateModel);
+        if (predefinedModel?.context_limit) {
+          setTokenLimit(predefinedModel.context_limit);
+          setIsTokenLimitLoaded(true);
+          return;
+        }
       }
 
       // Priority 2: Check canonical model info (source of truth)
-      const canonicalInfo = await fetchCanonicalModelInfo(provider, model);
-      if (canonicalInfo?.context_limit) {
-        setTokenLimit(canonicalInfo.context_limit);
-        setIsTokenLimitLoaded(true);
-        return;
+      for (const candidateModel of modelCandidates) {
+        const canonicalInfo = await fetchCanonicalModelInfo(provider, candidateModel);
+        if (canonicalInfo?.context_limit) {
+          setTokenLimit(canonicalInfo.context_limit);
+          setIsTokenLimitLoaded(true);
+          return;
+        }
       }
 
       // Priority 3: Fall back to provider metadata known_models (may be outdated)
       const providers = await getProviders(true);
       const currentProvider = providers.find((p) => p.name === provider);
       if (currentProvider?.metadata?.known_models) {
-        const modelConfig = currentProvider.metadata.known_models.find((m) => m.name === model);
-        if (modelConfig?.context_limit) {
-          setTokenLimit(modelConfig.context_limit);
-          setIsTokenLimitLoaded(true);
-          return;
+        for (const candidateModel of modelCandidates) {
+          const modelConfig = currentProvider.metadata.known_models.find(
+            (knownModel) => knownModel.name === candidateModel
+          );
+          if (modelConfig?.context_limit) {
+            setTokenLimit(modelConfig.context_limit);
+            setIsTokenLimitLoaded(true);
+            return;
+          }
         }
       }
 
@@ -462,7 +486,7 @@ export default function ChatInput({
   useEffect(() => {
     loadProviderDetails();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveModel, effectiveProvider, configModel, configProvider]);
+  }, [effectiveModel, effectiveProvider, configModel, configProvider, pricingModel]);
 
   // Handle tool count alerts and token usage
   useEffect(() => {
@@ -1549,8 +1573,10 @@ export default function ChatInput({
                 <CostTracker
                   inputTokens={accumulatedInputTokens}
                   outputTokens={accumulatedOutputTokens}
+                  cacheReadInputTokens={accumulatedCacheReadInputTokens}
+                  cacheWriteInputTokens={accumulatedCacheWriteInputTokens}
                   sessionCosts={sessionCosts}
-                  model={effectiveModel}
+                  model={pricingModel ?? effectiveModel}
                   provider={effectiveProvider}
                 />
               </div>

@@ -1,11 +1,5 @@
 import { AppEvents } from '../constants/events';
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { SearchView } from './conversation/SearchView';
 import LoadingGoose from './LoadingGoose';
@@ -39,8 +33,6 @@ import { Recipe } from '../recipe';
 import { useAutoSubmit } from '../hooks/useAutoSubmit';
 import { Goose } from './icons';
 import EnvironmentBadge from './GooseSidebar/EnvironmentBadge';
-
-
 
 interface BaseChatProps {
   setChat: (chat: ChatType) => void;
@@ -173,8 +165,12 @@ export default function BaseChat({
   const { sessionCosts } = useCostTracking({
     sessionInputTokens: session?.accumulated_input_tokens || 0,
     sessionOutputTokens: session?.accumulated_output_tokens || 0,
+    sessionCacheReadInputTokens: session?.accumulated_cache_read_input_tokens || 0,
+    sessionCacheWriteInputTokens: session?.accumulated_cache_write_input_tokens || 0,
     localInputTokens: 0,
     localOutputTokens: 0,
+    localCacheReadInputTokens: 0,
+    localCacheWriteInputTokens: 0,
     session,
   });
 
@@ -485,6 +481,16 @@ export default function BaseChat({
             accumulatedOutputTokens={
               tokenState?.accumulatedOutputTokens ?? session?.accumulated_output_tokens ?? undefined
             }
+            accumulatedCacheReadInputTokens={
+              tokenState?.accumulatedCacheReadInputTokens ??
+              session?.accumulated_cache_read_input_tokens ??
+              undefined
+            }
+            accumulatedCacheWriteInputTokens={
+              tokenState?.accumulatedCacheWriteInputTokens ??
+              session?.accumulated_cache_write_input_tokens ??
+              undefined
+            }
             droppedFiles={droppedFiles}
             onFilesProcessed={() => setDroppedFiles([])} // Clear dropped files after processing
             messages={messages}
@@ -496,6 +502,7 @@ export default function BaseChat({
             toolCount={toolCount || 0}
             sessionModel={sessionModel}
             sessionProvider={sessionProvider}
+            pricingModel={session?.resolved_model_name ?? sessionModel}
             sessionLoaded={sessionLoaded}
             {...customChatInputProps}
           />
