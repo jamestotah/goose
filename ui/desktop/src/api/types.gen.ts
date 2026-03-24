@@ -1201,9 +1201,13 @@ export type ScheduledJob = {
 };
 
 export type Session = {
+    accumulated_cache_read_input_tokens?: number | null;
+    accumulated_cache_write_input_tokens?: number | null;
     accumulated_input_tokens?: number | null;
     accumulated_output_tokens?: number | null;
     accumulated_total_tokens?: number | null;
+    cache_read_input_tokens?: number | null;
+    cache_write_input_tokens?: number | null;
     conversation?: Conversation | null;
     created_at: string;
     extension_data: ExtensionData;
@@ -1216,6 +1220,7 @@ export type Session = {
     output_tokens?: number | null;
     provider_name?: string | null;
     recipe?: Recipe | null;
+    resolved_model_name?: string | null;
     schedule_id?: string | null;
     session_type?: SessionType;
     total_tokens?: number | null;
@@ -1398,9 +1403,13 @@ export type ThinkingContent = {
 };
 
 export type TokenState = {
+    accumulatedCacheReadInputTokens: number;
+    accumulatedCacheWriteInputTokens: number;
     accumulatedInputTokens: number;
     accumulatedOutputTokens: number;
     accumulatedTotalTokens: number;
+    cacheReadInputTokens: number;
+    cacheWriteInputTokens: number;
     inputTokens: number;
     outputTokens: number;
     totalTokens: number;

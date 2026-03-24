@@ -161,9 +161,17 @@ pub async fn get_token_state(session_manager: &SessionManager, session_id: &str)
             input_tokens: session.input_tokens.unwrap_or(0),
             output_tokens: session.output_tokens.unwrap_or(0),
             total_tokens: session.total_tokens.unwrap_or(0),
+            cache_read_input_tokens: session.cache_read_input_tokens.unwrap_or(0),
+            cache_write_input_tokens: session.cache_write_input_tokens.unwrap_or(0),
             accumulated_input_tokens: session.accumulated_input_tokens.unwrap_or(0),
             accumulated_output_tokens: session.accumulated_output_tokens.unwrap_or(0),
             accumulated_total_tokens: session.accumulated_total_tokens.unwrap_or(0),
+            accumulated_cache_read_input_tokens: session
+                .accumulated_cache_read_input_tokens
+                .unwrap_or(0),
+            accumulated_cache_write_input_tokens: session
+                .accumulated_cache_write_input_tokens
+                .unwrap_or(0),
         })
         .inspect_err(|e| {
             tracing::warn!(

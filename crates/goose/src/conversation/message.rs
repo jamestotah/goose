@@ -960,9 +960,13 @@ pub struct TokenState {
     pub input_tokens: i32,
     pub output_tokens: i32,
     pub total_tokens: i32,
+    pub cache_read_input_tokens: i32,
+    pub cache_write_input_tokens: i32,
     pub accumulated_input_tokens: i32,
     pub accumulated_output_tokens: i32,
     pub accumulated_total_tokens: i32,
+    pub accumulated_cache_read_input_tokens: i32,
+    pub accumulated_cache_write_input_tokens: i32,
 }
 
 #[cfg(test)]

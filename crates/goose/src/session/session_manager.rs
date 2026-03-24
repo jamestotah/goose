@@ -19,7 +19,7 @@ use std::sync::{Arc, LazyLock};
 use tracing::{info, warn};
 use utoipa::ToSchema;
 
-pub const CURRENT_SCHEMA_VERSION: i32 = 8;
+pub const CURRENT_SCHEMA_VERSION: i32 = 9;
 pub const SESSIONS_FOLDER: &str = "sessions";
 pub const DB_NAME: &str = "sessions.db";
 
@@ -84,9 +84,13 @@ pub struct Session {
     pub total_tokens: Option<i32>,
     pub input_tokens: Option<i32>,
     pub output_tokens: Option<i32>,
+    pub cache_read_input_tokens: Option<i32>,
+    pub cache_write_input_tokens: Option<i32>,
     pub accumulated_total_tokens: Option<i32>,
     pub accumulated_input_tokens: Option<i32>,
     pub accumulated_output_tokens: Option<i32>,
+    pub accumulated_cache_read_input_tokens: Option<i32>,
+    pub accumulated_cache_write_input_tokens: Option<i32>,
     pub schedule_id: Option<String>,
     pub recipe: Option<Recipe>,
     pub user_recipe_values: Option<HashMap<String, String>>,
@@ -94,6 +98,7 @@ pub struct Session {
     pub message_count: usize,
     pub provider_name: Option<String>,
     pub model_config: Option<ModelConfig>,
+    pub resolved_model_name: Option<String>,
     #[serde(default)]
     pub goose_mode: GooseMode,
 }
@@ -109,14 +114,19 @@ pub struct SessionUpdateBuilder<'a> {
     total_tokens: Option<Option<i32>>,
     input_tokens: Option<Option<i32>>,
     output_tokens: Option<Option<i32>>,
+    cache_read_input_tokens: Option<Option<i32>>,
+    cache_write_input_tokens: Option<Option<i32>>,
     accumulated_total_tokens: Option<Option<i32>>,
     accumulated_input_tokens: Option<Option<i32>>,
     accumulated_output_tokens: Option<Option<i32>>,
+    accumulated_cache_read_input_tokens: Option<Option<i32>>,
+    accumulated_cache_write_input_tokens: Option<Option<i32>>,
     schedule_id: Option<Option<String>>,
     recipe: Option<Option<Recipe>>,
     user_recipe_values: Option<Option<HashMap<String, String>>>,
     provider_name: Option<Option<String>>,
     model_config: Option<Option<ModelConfig>>,
+    resolved_model_name: Option<Option<String>>,
     goose_mode: Option<GooseMode>,
 }
 
@@ -140,14 +150,19 @@ impl<'a> SessionUpdateBuilder<'a> {
             total_tokens: None,
             input_tokens: None,
             output_tokens: None,
+            cache_read_input_tokens: None,
+            cache_write_input_tokens: None,
             accumulated_total_tokens: None,
             accumulated_input_tokens: None,
             accumulated_output_tokens: None,
+            accumulated_cache_read_input_tokens: None,
+            accumulated_cache_write_input_tokens: None,
             schedule_id: None,
             recipe: None,
             user_recipe_values: None,
             provider_name: None,
             model_config: None,
+            resolved_model_name: None,
             goose_mode: None,
         }
     }
@@ -204,6 +219,16 @@ impl<'a> SessionUpdateBuilder<'a> {
         self
     }
 
+    pub fn cache_read_input_tokens(mut self, tokens: Option<i32>) -> Self {
+        self.cache_read_input_tokens = Some(tokens);
+        self
+    }
+
+    pub fn cache_write_input_tokens(mut self, tokens: Option<i32>) -> Self {
+        self.cache_write_input_tokens = Some(tokens);
+        self
+    }
+
     pub fn accumulated_total_tokens(mut self, tokens: Option<i32>) -> Self {
         self.accumulated_total_tokens = Some(tokens);
         self
@@ -216,6 +241,16 @@ impl<'a> SessionUpdateBuilder<'a> {
 
     pub fn accumulated_output_tokens(mut self, tokens: Option<i32>) -> Self {
         self.accumulated_output_tokens = Some(tokens);
+        self
+    }
+
+    pub fn accumulated_cache_read_input_tokens(mut self, tokens: Option<i32>) -> Self {
+        self.accumulated_cache_read_input_tokens = Some(tokens);
+        self
+    }
+
+    pub fn accumulated_cache_write_input_tokens(mut self, tokens: Option<i32>) -> Self {
+        self.accumulated_cache_write_input_tokens = Some(tokens);
         self
     }
 
@@ -244,6 +279,11 @@ impl<'a> SessionUpdateBuilder<'a> {
 
     pub fn model_config(mut self, model_config: ModelConfig) -> Self {
         self.model_config = Some(Some(model_config));
+        self
+    }
+
+    pub fn resolved_model_name(mut self, model_name: impl Into<String>) -> Self {
+        self.resolved_model_name = Some(Some(model_name.into()));
         self
     }
 
@@ -422,9 +462,13 @@ impl Default for Session {
             total_tokens: None,
             input_tokens: None,
             output_tokens: None,
+            cache_read_input_tokens: None,
+            cache_write_input_tokens: None,
             accumulated_total_tokens: None,
             accumulated_input_tokens: None,
             accumulated_output_tokens: None,
+            accumulated_cache_read_input_tokens: None,
+            accumulated_cache_write_input_tokens: None,
             schedule_id: None,
             recipe: None,
             user_recipe_values: None,
@@ -432,6 +476,7 @@ impl Default for Session {
             message_count: 0,
             provider_name: None,
             model_config: None,
+            resolved_model_name: None,
             goose_mode: GooseMode::default(),
         }
     }
@@ -487,9 +532,19 @@ impl sqlx::FromRow<'_, sqlx::sqlite::SqliteRow> for Session {
             total_tokens: row.try_get("total_tokens")?,
             input_tokens: row.try_get("input_tokens")?,
             output_tokens: row.try_get("output_tokens")?,
+            cache_read_input_tokens: row.try_get("cache_read_input_tokens").ok().flatten(),
+            cache_write_input_tokens: row.try_get("cache_write_input_tokens").ok().flatten(),
             accumulated_total_tokens: row.try_get("accumulated_total_tokens")?,
             accumulated_input_tokens: row.try_get("accumulated_input_tokens")?,
             accumulated_output_tokens: row.try_get("accumulated_output_tokens")?,
+            accumulated_cache_read_input_tokens: row
+                .try_get("accumulated_cache_read_input_tokens")
+                .ok()
+                .flatten(),
+            accumulated_cache_write_input_tokens: row
+                .try_get("accumulated_cache_write_input_tokens")
+                .ok()
+                .flatten(),
             schedule_id: row.try_get("schedule_id")?,
             recipe,
             user_recipe_values,
@@ -497,6 +552,7 @@ impl sqlx::FromRow<'_, sqlx::sqlite::SqliteRow> for Session {
             message_count: row.try_get("message_count").unwrap_or(0) as usize,
             provider_name: row.try_get("provider_name").ok().flatten(),
             model_config,
+            resolved_model_name: row.try_get("resolved_model_name").ok().flatten(),
             goose_mode: row
                 .try_get::<String, _>("goose_mode")
                 .ok()
@@ -593,14 +649,19 @@ impl SessionStorage {
                 total_tokens INTEGER,
                 input_tokens INTEGER,
                 output_tokens INTEGER,
+                cache_read_input_tokens INTEGER,
+                cache_write_input_tokens INTEGER,
                 accumulated_total_tokens INTEGER,
                 accumulated_input_tokens INTEGER,
                 accumulated_output_tokens INTEGER,
+                accumulated_cache_read_input_tokens INTEGER,
+                accumulated_cache_write_input_tokens INTEGER,
                 schedule_id TEXT,
                 recipe_json TEXT,
                 user_recipe_values_json TEXT,
                 provider_name TEXT,
                 model_config_json TEXT,
+                resolved_model_name TEXT,
                 goose_mode TEXT NOT NULL DEFAULT 'auto'
             )
         "#,
@@ -711,11 +772,12 @@ impl SessionStorage {
             r#"
         INSERT INTO sessions (
             id, name, user_set_name, session_type, working_dir, created_at, updated_at, extension_data,
-            total_tokens, input_tokens, output_tokens,
+            total_tokens, input_tokens, output_tokens, cache_read_input_tokens, cache_write_input_tokens,
             accumulated_total_tokens, accumulated_input_tokens, accumulated_output_tokens,
+            accumulated_cache_read_input_tokens, accumulated_cache_write_input_tokens,
             schedule_id, recipe_json, user_recipe_values_json,
-            provider_name, model_config_json, goose_mode
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            provider_name, model_config_json, resolved_model_name, goose_mode
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#,
         )
         .bind(&session.id)
@@ -729,14 +791,19 @@ impl SessionStorage {
         .bind(session.total_tokens)
         .bind(session.input_tokens)
         .bind(session.output_tokens)
+        .bind(session.cache_read_input_tokens)
+        .bind(session.cache_write_input_tokens)
         .bind(session.accumulated_total_tokens)
         .bind(session.accumulated_input_tokens)
         .bind(session.accumulated_output_tokens)
+        .bind(session.accumulated_cache_read_input_tokens)
+        .bind(session.accumulated_cache_write_input_tokens)
         .bind(&session.schedule_id)
         .bind(recipe_json)
         .bind(user_recipe_values_json)
         .bind(&session.provider_name)
         .bind(model_config_json)
+        .bind(&session.resolved_model_name)
         .bind(session.goose_mode.to_string())
         .execute(&mut *tx)
         .await?;
@@ -919,6 +986,47 @@ impl SessionStorage {
                 .execute(&mut **tx)
                 .await?;
             }
+            9 => {
+                sqlx::query(
+                    r#"
+                    ALTER TABLE sessions ADD COLUMN cache_read_input_tokens INTEGER
+                "#,
+                )
+                .execute(&mut **tx)
+                .await?;
+
+                sqlx::query(
+                    r#"
+                    ALTER TABLE sessions ADD COLUMN cache_write_input_tokens INTEGER
+                "#,
+                )
+                .execute(&mut **tx)
+                .await?;
+
+                sqlx::query(
+                    r#"
+                    ALTER TABLE sessions ADD COLUMN accumulated_cache_read_input_tokens INTEGER
+                "#,
+                )
+                .execute(&mut **tx)
+                .await?;
+
+                sqlx::query(
+                    r#"
+                    ALTER TABLE sessions ADD COLUMN accumulated_cache_write_input_tokens INTEGER
+                "#,
+                )
+                .execute(&mut **tx)
+                .await?;
+
+                sqlx::query(
+                    r#"
+                    ALTER TABLE sessions ADD COLUMN resolved_model_name TEXT
+                "#,
+                )
+                .execute(&mut **tx)
+                .await?;
+            }
             _ => {
                 anyhow::bail!("Unknown migration version: {}", version);
             }
@@ -976,10 +1084,11 @@ impl SessionStorage {
         let mut session = sqlx::query_as::<_, Session>(
             r#"
         SELECT id, working_dir, name, description, user_set_name, session_type, created_at, updated_at, extension_data,
-               total_tokens, input_tokens, output_tokens,
+               total_tokens, input_tokens, output_tokens, cache_read_input_tokens, cache_write_input_tokens,
                accumulated_total_tokens, accumulated_input_tokens, accumulated_output_tokens,
+               accumulated_cache_read_input_tokens, accumulated_cache_write_input_tokens,
                schedule_id, recipe_json, user_recipe_values_json,
-               provider_name, model_config_json, goose_mode
+               provider_name, model_config_json, resolved_model_name, goose_mode
         FROM sessions
         WHERE id = ?
     "#,
@@ -1031,17 +1140,28 @@ impl SessionStorage {
         add_update!(builder.total_tokens, "total_tokens");
         add_update!(builder.input_tokens, "input_tokens");
         add_update!(builder.output_tokens, "output_tokens");
+        add_update!(builder.cache_read_input_tokens, "cache_read_input_tokens");
+        add_update!(builder.cache_write_input_tokens, "cache_write_input_tokens");
         add_update!(builder.accumulated_total_tokens, "accumulated_total_tokens");
         add_update!(builder.accumulated_input_tokens, "accumulated_input_tokens");
         add_update!(
             builder.accumulated_output_tokens,
             "accumulated_output_tokens"
         );
+        add_update!(
+            builder.accumulated_cache_read_input_tokens,
+            "accumulated_cache_read_input_tokens"
+        );
+        add_update!(
+            builder.accumulated_cache_write_input_tokens,
+            "accumulated_cache_write_input_tokens"
+        );
         add_update!(builder.schedule_id, "schedule_id");
         add_update!(builder.recipe, "recipe_json");
         add_update!(builder.user_recipe_values, "user_recipe_values_json");
         add_update!(builder.provider_name, "provider_name");
         add_update!(builder.model_config, "model_config_json");
+        add_update!(builder.resolved_model_name, "resolved_model_name");
         add_update!(builder.goose_mode, "goose_mode");
 
         if updates.is_empty() {
@@ -1077,6 +1197,12 @@ impl SessionStorage {
         if let Some(ot) = builder.output_tokens {
             q = q.bind(ot);
         }
+        if let Some(crt) = builder.cache_read_input_tokens {
+            q = q.bind(crt);
+        }
+        if let Some(cwt) = builder.cache_write_input_tokens {
+            q = q.bind(cwt);
+        }
         if let Some(att) = builder.accumulated_total_tokens {
             q = q.bind(att);
         }
@@ -1085,6 +1211,12 @@ impl SessionStorage {
         }
         if let Some(aot) = builder.accumulated_output_tokens {
             q = q.bind(aot);
+        }
+        if let Some(acrt) = builder.accumulated_cache_read_input_tokens {
+            q = q.bind(acrt);
+        }
+        if let Some(acwt) = builder.accumulated_cache_write_input_tokens {
+            q = q.bind(acwt);
         }
         if let Some(sid) = builder.schedule_id {
             q = q.bind(sid);
@@ -1107,6 +1239,9 @@ impl SessionStorage {
                 .map(|mc| serde_json::to_string(&mc))
                 .transpose()?;
             q = q.bind(model_config_json);
+        }
+        if let Some(resolved_model_name) = builder.resolved_model_name {
+            q = q.bind(resolved_model_name);
         }
         if let Some(goose_mode) = builder.goose_mode {
             q = q.bind(goose_mode.to_string());
@@ -1259,10 +1394,11 @@ impl SessionStorage {
         let query = format!(
             r#"
             SELECT s.id, s.working_dir, s.name, s.description, s.user_set_name, s.session_type, s.created_at, s.updated_at, s.extension_data,
-                   s.total_tokens, s.input_tokens, s.output_tokens,
+                   s.total_tokens, s.input_tokens, s.output_tokens, s.cache_read_input_tokens, s.cache_write_input_tokens,
                    s.accumulated_total_tokens, s.accumulated_input_tokens, s.accumulated_output_tokens,
+                   s.accumulated_cache_read_input_tokens, s.accumulated_cache_write_input_tokens,
                    s.schedule_id, s.recipe_json, s.user_recipe_values_json,
-                   s.provider_name, s.model_config_json, s.goose_mode,
+                   s.provider_name, s.model_config_json, s.resolved_model_name, s.goose_mode,
                    COUNT(m.id) as message_count
             FROM sessions s
             INNER JOIN messages m ON s.id = m.session_id
@@ -1360,15 +1496,23 @@ impl SessionStorage {
             .total_tokens(import.total_tokens)
             .input_tokens(import.input_tokens)
             .output_tokens(import.output_tokens)
+            .cache_read_input_tokens(import.cache_read_input_tokens)
+            .cache_write_input_tokens(import.cache_write_input_tokens)
             .accumulated_total_tokens(import.accumulated_total_tokens)
             .accumulated_input_tokens(import.accumulated_input_tokens)
             .accumulated_output_tokens(import.accumulated_output_tokens)
+            .accumulated_cache_read_input_tokens(import.accumulated_cache_read_input_tokens)
+            .accumulated_cache_write_input_tokens(import.accumulated_cache_write_input_tokens)
             .schedule_id(import.schedule_id)
             .recipe(import.recipe)
             .user_recipe_values(import.user_recipe_values);
 
         if import.user_set_name {
             builder = builder.user_provided_name(import.name.clone());
+        }
+
+        if let Some(resolved_model_name) = import.resolved_model_name {
+            builder = builder.resolved_model_name(resolved_model_name);
         }
 
         builder.apply().await?;
@@ -1412,6 +1556,10 @@ impl SessionStorage {
 
         if let Some(model_config) = original_session.model_config {
             builder = builder.model_config(model_config);
+        }
+
+        if let Some(resolved_model_name) = original_session.resolved_model_name {
+            builder = builder.resolved_model_name(resolved_model_name);
         }
 
         builder = builder.goose_mode(original_session.goose_mode);

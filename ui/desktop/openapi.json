@@ -7658,6 +7658,16 @@
           "message_count"
         ],
         "properties": {
+          "accumulated_cache_read_input_tokens": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "accumulated_cache_write_input_tokens": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
           "accumulated_input_tokens": {
             "type": "integer",
             "format": "int32",
@@ -7669,6 +7679,16 @@
             "nullable": true
           },
           "accumulated_total_tokens": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "cache_read_input_tokens": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "cache_write_input_tokens": {
             "type": "integer",
             "format": "int32",
             "nullable": true
@@ -7729,6 +7749,10 @@
                 "$ref": "#/components/schemas/Recipe"
               }
             ],
+            "nullable": true
+          },
+          "resolved_model_name": {
+            "type": "string",
             "nullable": true
           },
           "schedule_id": {
@@ -8313,11 +8337,23 @@
           "inputTokens",
           "outputTokens",
           "totalTokens",
+          "cacheReadInputTokens",
+          "cacheWriteInputTokens",
           "accumulatedInputTokens",
           "accumulatedOutputTokens",
-          "accumulatedTotalTokens"
+          "accumulatedTotalTokens",
+          "accumulatedCacheReadInputTokens",
+          "accumulatedCacheWriteInputTokens"
         ],
         "properties": {
+          "accumulatedCacheReadInputTokens": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "accumulatedCacheWriteInputTokens": {
+            "type": "integer",
+            "format": "int32"
+          },
           "accumulatedInputTokens": {
             "type": "integer",
             "format": "int32"
@@ -8327,6 +8363,14 @@
             "format": "int32"
           },
           "accumulatedTotalTokens": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "cacheReadInputTokens": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "cacheWriteInputTokens": {
             "type": "integer",
             "format": "int32"
           },
